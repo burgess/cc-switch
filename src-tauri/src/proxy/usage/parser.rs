@@ -192,11 +192,12 @@ impl TokenUsage {
                             if let Some(input) = delta_input {
                                 let has_delta_cache =
                                     delta_cache_read.is_some() || delta_cache_creation.is_some();
-                                let fresh_plus_cache_read = input
-                                    .checked_add(delta_cache_read.unwrap_or(0));
-                                let fresh_plus_all_cache = fresh_plus_cache_read.and_then(|total| {
-                                    total.checked_add(delta_cache_creation.unwrap_or(0))
-                                });
+                                let fresh_plus_cache_read =
+                                    input.checked_add(delta_cache_read.unwrap_or(0));
+                                let fresh_plus_all_cache =
+                                    fresh_plus_cache_read.and_then(|total| {
+                                        total.checked_add(delta_cache_creation.unwrap_or(0))
+                                    });
                                 let corrected_cache_tuple = has_delta_cache
                                     && input < usage.input_tokens
                                     && (fresh_plus_cache_read == Some(usage.input_tokens)
