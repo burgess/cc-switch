@@ -184,13 +184,28 @@ impl TokenUsage {
                                 .and_then(|v| v.as_u64())
                                 .map(|v| v as u32);
 
-                            // 原生 Anthropic 语义下，非零 message_start input_tokens 是该请求的
-                            // 权威输入计数，不应仅因为后续 delta 值更小就被覆盖。
-                            // 仅当 start 未提供有效输入（0/缺失）时，才回退到 delta-only provider
-                            // 的 usage；一旦进入 delta 模式，后续 delta 仍可继续更新同一组计数。
+                            // 原生 Anthropic 语义下，非零 message_start input_tokens 通常是
+                            // 权威输入计数；但部分兼容 provider 会先在 start 上报总输入，
+                            // 再在 delta 上报 fresh input + cache 的修正 tuple。仅当 delta 的
+                            // cache tuple 能与 start 总输入自洽时才接受这种修正，避免把任意
+                            // 较小 delta（例如网关的不同统计口径）误当成 fresh input。
                             if let Some(input) = delta_input {
-                                let should_use_delta_input =
-                                    input > 0 && (usage.input_tokens == 0 || input_from_delta);
+                                let has_delta_cache =
+                                    delta_cache_read.is_some() || delta_cache_creation.is_some();
+                                let fresh_plus_cache_read = input
+                                    .checked_add(delta_cache_read.unwrap_or(0));
+                                let fresh_plus_all_cache = fresh_plus_cache_read.and_then(|total| {
+                                    total.checked_add(delta_cache_creation.unwrap_or(0))
+                                });
+                                let corrected_cache_tuple = has_delta_cache
+                                    && input < usage.input_tokens
+                                    && (fresh_plus_cache_read == Some(usage.input_tokens)
+                                        || fresh_plus_all_cache == Some(usage.input_tokens));
+
+                                let should_use_delta_input = input > 0
+                                    && (usage.input_tokens == 0
+                                        || input_from_delta
+                                        || corrected_cache_tuple);
 
                                 if should_use_delta_input {
                                     usage.input_tokens = input;
@@ -852,7 +867,9 @@ mod tests {
     }
 
     #[test]
-    fn test_claude_stream_keeps_nonzero_start_when_delta_input_is_smaller() {
+    fn test_claude_stream_prefers_coherent_corrected_delta_usage() {
+        // 部分兼容 provider 会在 start 上报总输入，再在 delta 上报 fresh input + cache。
+        // 80_000 + 120_000 恰好还原 start 的 200_000，因此接受 delta 的修正 tuple。
         let events = vec![
             json!({
                 "type": "message_start",
@@ -877,10 +894,10 @@ mod tests {
         ];
 
         let usage = TokenUsage::from_claude_stream_events(&events).unwrap();
-        assert_eq!(usage.input_tokens, 200_000);
+        assert_eq!(usage.input_tokens, 80_000);
         assert_eq!(usage.output_tokens, 1_000);
-        assert_eq!(usage.cache_read_tokens, 180_000);
-        assert_eq!(usage.cache_creation_tokens, 2_000);
+        assert_eq!(usage.cache_read_tokens, 120_000);
+        assert_eq!(usage.cache_creation_tokens, 500);
         assert_eq!(usage.model, Some("qwen-max".to_string()));
     }
 
