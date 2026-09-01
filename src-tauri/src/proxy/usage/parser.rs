@@ -214,12 +214,8 @@ impl TokenUsage {
 
                                 if should_use_delta_input {
                                     usage.input_tokens = input;
-                                    if let Some(cache_read) = delta_cache_read {
-                                        usage.cache_read_tokens = cache_read;
-                                    }
-                                    if let Some(cache_creation) = delta_cache_creation {
-                                        usage.cache_creation_tokens = cache_creation;
-                                    }
+                                    usage.cache_read_tokens = delta_cache_read.unwrap_or(0);
+                                    usage.cache_creation_tokens = delta_cache_creation.unwrap_or(0);
                                 }
                             }
                             // 从 message_delta 中处理缓存命中(cache_read_input_tokens)
@@ -977,6 +973,47 @@ mod tests {
         assert_eq!(usage.output_tokens, 1_000);
         assert_eq!(usage.cache_read_tokens, 120_000);
         assert_eq!(usage.cache_creation_tokens, 500);
+        assert_eq!(usage.model, Some("qwen-max".to_string()));
+    }
+
+    #[test]
+    fn test_claude_stream_clears_omitted_cache_bucket_on_later_correction() {
+        let events = vec![
+            json!({
+                "type": "message_start",
+                "message": {
+                    "model": "qwen-max",
+                    "usage": {
+                        "input_tokens": 200,
+                        "cache_read_input_tokens": 150,
+                        "cache_creation_input_tokens": 10
+                    }
+                }
+            }),
+            json!({
+                "type": "message_delta",
+                "usage": {
+                    "input_tokens": 80,
+                    "output_tokens": 100,
+                    "cache_read_input_tokens": 119,
+                    "cache_creation_input_tokens": 1
+                }
+            }),
+            json!({
+                "type": "message_delta",
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 1_000,
+                    "cache_read_input_tokens": 100
+                }
+            }),
+        ];
+
+        let usage = TokenUsage::from_claude_stream_events(&events).unwrap();
+        assert_eq!(usage.input_tokens, 100);
+        assert_eq!(usage.output_tokens, 1_000);
+        assert_eq!(usage.cache_read_tokens, 100);
+        assert_eq!(usage.cache_creation_tokens, 0);
         assert_eq!(usage.model, Some("qwen-max".to_string()));
     }
 
