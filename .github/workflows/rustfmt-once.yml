@@ -1,4 +1,4 @@
-name: Rustfmt Once
+name: Patch Claude Usage Tests Once
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  format:
+  patch-tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout fix branch
@@ -18,23 +18,47 @@ jobs:
           ref: fix/claude-input-token-undercount
           fetch-depth: 0
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
+      - name: Update coherent tuple fixtures
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("src-tauri/src/proxy/usage/parser.rs")
+          text = path.read_text()
+
+          old1 = '''    fn test_claude_stream_prefers_coherent_corrected_delta_usage() {
+        // 部分兼容 provider 会在 start 上报总输入，再在 delta 上报 fresh input + cache。
+        // 80_000 + 120_000 恰好还原 start 的 200_000，因此接受 delta 的修正 tuple。
+'''
+          new1 = '''    fn test_claude_stream_prefers_coherent_corrected_delta_usage() {
+        // 部分兼容 provider 会在 start 上报总输入，再在 delta 上报 fresh input + cache。
+        // 80_000 + 120_000 + 500 恰好还原 start 的 200_500，因此接受 delta 的修正 tuple。
+'''
+          if old1 not in text:
+              raise SystemExit("first test header not found")
+          text = text.replace(old1, new1, 1)
+
+          markers = [
+              "fn test_claude_stream_prefers_coherent_corrected_delta_usage()",
+              "fn test_claude_stream_rejects_incoherent_later_delta_after_correction()",
+          ]
+          for marker in markers:
+              pos = text.index(marker)
+              input_pos = text.index('"input_tokens": 200_000,', pos)
+              text = text[:input_pos] + '"input_tokens": 200_500,' + text[input_pos + len('"input_tokens": 200_000,'):]
+
+          path.write_text(text)
+          PY
 
       - name: Format Rust
         run: cargo fmt --manifest-path src-tauri/Cargo.toml
 
-      - name: Commit formatting
+      - name: Commit fixture correction
         shell: bash
         run: |
-          if git diff --quiet; then
-            echo "No formatting changes needed"
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src-tauri/src/proxy/usage/parser.rs
-          git commit -m "style: format Claude usage parser"
+          git commit -m "test(usage): align coherent cache tuple fixtures"
           git push origin HEAD:fix/claude-input-token-undercount
