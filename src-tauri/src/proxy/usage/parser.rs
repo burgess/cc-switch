@@ -125,7 +125,7 @@ impl TokenUsage {
         let mut usage = Self::default();
         let mut model: Option<String> = None;
         let mut message_id: Option<String> = None;
-        let mut input_from_delta = false;
+        let mut start_input_tokens = 0u32;
 
         for event in events {
             if let Some(event_type) = event.get("type").and_then(|v| v.as_str()) {
@@ -149,6 +149,7 @@ impl TokenUsage {
                                 msg_usage.get("input_tokens").and_then(|v| v.as_u64())
                             {
                                 usage.input_tokens = input as u32;
+                                start_input_tokens = input as u32;
                             }
                             usage.cache_read_tokens = msg_usage
                                 .get("cache_read_input_tokens")
@@ -199,18 +200,16 @@ impl TokenUsage {
                                         total.checked_add(delta_cache_creation.unwrap_or(0))
                                     });
                                 let corrected_cache_tuple = has_delta_cache
-                                    && input < usage.input_tokens
-                                    && (fresh_plus_cache_read == Some(usage.input_tokens)
-                                        || fresh_plus_all_cache == Some(usage.input_tokens));
+                                    && start_input_tokens > 0
+                                    && input < start_input_tokens
+                                    && (fresh_plus_cache_read == Some(start_input_tokens)
+                                        || fresh_plus_all_cache == Some(start_input_tokens));
 
-                                let should_use_delta_input = input > 0
-                                    && (usage.input_tokens == 0
-                                        || input_from_delta
-                                        || corrected_cache_tuple);
+                                let should_use_delta_input =
+                                    input > 0 && (start_input_tokens == 0 || corrected_cache_tuple);
 
                                 if should_use_delta_input {
                                     usage.input_tokens = input;
-                                    input_from_delta = true;
                                     if let Some(cache_read) = delta_cache_read {
                                         usage.cache_read_tokens = cache_read;
                                     }
@@ -887,6 +886,48 @@ mod tests {
                 "type": "message_delta",
                 "usage": {
                     "input_tokens": 80_000,
+                    "output_tokens": 1_000,
+                    "cache_read_input_tokens": 120_000,
+                    "cache_creation_input_tokens": 500
+                }
+            }),
+        ];
+
+        let usage = TokenUsage::from_claude_stream_events(&events).unwrap();
+        assert_eq!(usage.input_tokens, 80_000);
+        assert_eq!(usage.output_tokens, 1_000);
+        assert_eq!(usage.cache_read_tokens, 120_000);
+        assert_eq!(usage.cache_creation_tokens, 500);
+        assert_eq!(usage.model, Some("qwen-max".to_string()));
+    }
+
+    #[test]
+    fn test_claude_stream_rejects_incoherent_later_delta_after_correction() {
+        let events = vec![
+            json!({
+                "type": "message_start",
+                "message": {
+                    "model": "qwen-max",
+                    "usage": {
+                        "input_tokens": 200_000,
+                        "cache_read_input_tokens": 180_000,
+                        "cache_creation_input_tokens": 2_000
+                    }
+                }
+            }),
+            json!({
+                "type": "message_delta",
+                "usage": {
+                    "input_tokens": 80_000,
+                    "output_tokens": 100,
+                    "cache_read_input_tokens": 120_000,
+                    "cache_creation_input_tokens": 500
+                }
+            }),
+            json!({
+                "type": "message_delta",
+                "usage": {
+                    "input_tokens": 200_000,
                     "output_tokens": 1_000,
                     "cache_read_input_tokens": 120_000,
                     "cache_creation_input_tokens": 500
