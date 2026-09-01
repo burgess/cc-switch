@@ -873,14 +873,14 @@ mod tests {
     #[test]
     fn test_claude_stream_prefers_coherent_corrected_delta_usage() {
         // 部分兼容 provider 会在 start 上报总输入，再在 delta 上报 fresh input + cache。
-        // 80_000 + 120_000 恰好还原 start 的 200_000，因此接受 delta 的修正 tuple。
+        // 80_000 + 120_000 + 500 恰好还原 start 的 200_500，因此接受 delta 的修正 tuple。
         let events = vec![
             json!({
                 "type": "message_start",
                 "message": {
                     "model": "qwen-max",
                     "usage": {
-                        "input_tokens": 200_000,
+                        "input_tokens": 200_500,
                         "cache_read_input_tokens": 180_000,
                         "cache_creation_input_tokens": 2_000
                     }
@@ -946,7 +946,7 @@ mod tests {
                 "message": {
                     "model": "qwen-max",
                     "usage": {
-                        "input_tokens": 200_000,
+                        "input_tokens": 200_500,
                         "cache_read_input_tokens": 180_000,
                         "cache_creation_input_tokens": 2_000
                     }
