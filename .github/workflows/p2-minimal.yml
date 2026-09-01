@@ -1,0 +1,12 @@
+name: P2 Minimal
+on:
+  push:
+    branches: [automation/fix-corrected-delta-p2]
+permissions:
+  contents: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: echo ok
