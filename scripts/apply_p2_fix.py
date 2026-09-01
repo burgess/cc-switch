@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# One-off script executed by the temporary workflow.
 p = Path("src-tauri/src/proxy/usage/parser.rs")
 s = p.read_text()
 
