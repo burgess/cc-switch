@@ -22,8 +22,8 @@ jobs:
         with:
           components: rustfmt
       - name: Apply P2 fix and regression test
-        shell: python
         run: |
+          python3 - <<'PY'
           from pathlib import Path
           p = Path('src-tauri/src/proxy/usage/parser.rs')
           s = p.read_text()
@@ -115,6 +115,7 @@ jobs:
               raise SystemExit('test insertion marker not found')
           s = s.replace(marker, test + marker, 1)
           p.write_text(s)
+          PY
       - name: Format Rust
         run: cargo fmt --manifest-path src-tauri/Cargo.toml
       - name: Commit fix
