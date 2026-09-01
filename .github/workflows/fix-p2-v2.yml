@@ -18,13 +18,19 @@ jobs:
           ref: fix/claude-input-token-undercount
           fetch-depth: 0
 
+      - name: Checkout automation script
+        uses: actions/checkout@v6
+        with:
+          ref: automation/fix-p2-v2
+          path: automation-src
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
 
       - name: Apply fix
-        run: python3 scripts/apply_p2_fix.py
+        run: python3 automation-src/scripts/apply_p2_fix.py
 
       - name: Format Rust
         run: cargo fmt --manifest-path src-tauri/Cargo.toml
