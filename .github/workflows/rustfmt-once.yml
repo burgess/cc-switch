@@ -1,4 +1,4 @@
-name: Patch Claude Usage Tests Once
+name: Patch Claude Usage Cache Replacement Once
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  patch-tests:
+  patch-parser:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout fix branch
@@ -18,23 +18,93 @@ jobs:
           ref: fix/claude-input-token-undercount
           fetch-depth: 0
 
-      - name: Update coherent tuple fixtures
+      - name: Patch parser and regression test
         shell: bash
         run: |
-          FILE=src-tauri/src/proxy/usage/parser.rs
-          perl -0pi -e 's/80_000 \+ 120_000 恰好还原 start 的 200_000/80_000 + 120_000 + 500 恰好还原 start 的 200_500/' "$FILE"
-          perl -0pi -e 's/(fn test_claude_stream_prefers_coherent_corrected_delta_usage\(\).*?"input_tokens": )200_000,/${1}200_500,/s' "$FILE"
-          perl -0pi -e 's/(fn test_claude_stream_rejects_incoherent_later_delta_after_correction\(\).*?"input_tokens": )200_000,/${1}200_500,/s' "$FILE"
-          git diff -- "$FILE"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src-tauri/src/proxy/usage/parser.rs')
+          s = p.read_text()
+          old = '''                                if should_use_delta_input {
+                                    usage.input_tokens = input;
+                                    if let Some(cache_read) = delta_cache_read {
+                                        usage.cache_read_tokens = cache_read;
+                                    }
+                                    if let Some(cache_creation) = delta_cache_creation {
+                                        usage.cache_creation_tokens = cache_creation;
+                                    }
+                                }
+'''
+          new = '''                                if should_use_delta_input {
+                                    usage.input_tokens = input;
+                                    usage.cache_read_tokens = delta_cache_read.unwrap_or(0);
+                                    usage.cache_creation_tokens = delta_cache_creation.unwrap_or(0);
+                                }
+'''
+          if old not in s:
+              raise SystemExit('target assignment block not found')
+          s = s.replace(old, new, 1)
+
+          marker = '''    #[test]
+    fn test_claude_stream_updates_delta_only_usage_from_later_delta() {
+'''
+          test = '''    #[test]
+    fn test_claude_stream_clears_omitted_cache_bucket_on_later_correction() {
+        let events = vec![
+            json!({
+                "type": "message_start",
+                "message": {
+                    "model": "qwen-max",
+                    "usage": {
+                        "input_tokens": 200,
+                        "cache_read_input_tokens": 150,
+                        "cache_creation_input_tokens": 10
+                    }
+                }
+            }),
+            json!({
+                "type": "message_delta",
+                "usage": {
+                    "input_tokens": 80,
+                    "output_tokens": 100,
+                    "cache_read_input_tokens": 119,
+                    "cache_creation_input_tokens": 1
+                }
+            }),
+            json!({
+                "type": "message_delta",
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 1_000,
+                    "cache_read_input_tokens": 100
+                }
+            }),
+        ];
+
+        let usage = TokenUsage::from_claude_stream_events(&events).unwrap();
+        assert_eq!(usage.input_tokens, 100);
+        assert_eq!(usage.output_tokens, 1_000);
+        assert_eq!(usage.cache_read_tokens, 100);
+        assert_eq!(usage.cache_creation_tokens, 0);
+        assert_eq!(usage.model, Some("qwen-max".to_string()));
+    }
+
+'''
+          if marker not in s:
+              raise SystemExit('test insertion marker not found')
+          s = s.replace(marker, test + marker, 1)
+          p.write_text(s)
+          PY
+          git diff -- src-tauri/src/proxy/usage/parser.rs
 
       - name: Format Rust
         run: cargo fmt --manifest-path src-tauri/Cargo.toml
 
-      - name: Commit fixture correction
+      - name: Commit parser fix
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src-tauri/src/proxy/usage/parser.rs
-          git commit -m "test(usage): align coherent cache tuple fixtures"
+          git commit -m "fix(usage): replace corrected Claude cache tuple"
           git push origin HEAD:fix/claude-input-token-undercount
