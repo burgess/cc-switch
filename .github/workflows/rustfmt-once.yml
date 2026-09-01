@@ -21,35 +21,11 @@ jobs:
       - name: Update coherent tuple fixtures
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("src-tauri/src/proxy/usage/parser.rs")
-          text = path.read_text()
-
-          old1 = '''    fn test_claude_stream_prefers_coherent_corrected_delta_usage() {
-        // 部分兼容 provider 会在 start 上报总输入，再在 delta 上报 fresh input + cache。
-        // 80_000 + 120_000 恰好还原 start 的 200_000，因此接受 delta 的修正 tuple。
-'''
-          new1 = '''    fn test_claude_stream_prefers_coherent_corrected_delta_usage() {
-        // 部分兼容 provider 会在 start 上报总输入，再在 delta 上报 fresh input + cache。
-        // 80_000 + 120_000 + 500 恰好还原 start 的 200_500，因此接受 delta 的修正 tuple。
-'''
-          if old1 not in text:
-              raise SystemExit("first test header not found")
-          text = text.replace(old1, new1, 1)
-
-          markers = [
-              "fn test_claude_stream_prefers_coherent_corrected_delta_usage()",
-              "fn test_claude_stream_rejects_incoherent_later_delta_after_correction()",
-          ]
-          for marker in markers:
-              pos = text.index(marker)
-              input_pos = text.index('"input_tokens": 200_000,', pos)
-              text = text[:input_pos] + '"input_tokens": 200_500,' + text[input_pos + len('"input_tokens": 200_000,'):]
-
-          path.write_text(text)
-          PY
+          FILE=src-tauri/src/proxy/usage/parser.rs
+          perl -0pi -e 's/80_000 \+ 120_000 恰好还原 start 的 200_000/80_000 + 120_000 + 500 恰好还原 start 的 200_500/' "$FILE"
+          perl -0pi -e 's/(fn test_claude_stream_prefers_coherent_corrected_delta_usage\(\).*?"input_tokens": )200_000,/${1}200_500,/s' "$FILE"
+          perl -0pi -e 's/(fn test_claude_stream_rejects_incoherent_later_delta_after_correction\(\).*?"input_tokens": )200_000,/${1}200_500,/s' "$FILE"
+          git diff -- "$FILE"
 
       - name: Format Rust
         run: cargo fmt --manifest-path src-tauri/Cargo.toml
