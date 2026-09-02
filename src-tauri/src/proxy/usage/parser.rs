@@ -219,14 +219,14 @@ impl TokenUsage {
                                 }
                             }
                             // 从 message_delta 中处理缓存命中(cache_read_input_tokens)
-                            if usage.cache_read_tokens == 0 {
+                            if start_input_tokens == 0 && usage.cache_read_tokens == 0 {
                                 if let Some(cache_read) = delta_cache_read {
                                     usage.cache_read_tokens = cache_read;
                                 }
                             }
                             // 从 message_delta 中处理缓存创建(cache_creation_input_tokens)
                             // 注: 现在 zhipu 没有返回 cache_creation_input_tokens 字段
-                            if usage.cache_creation_tokens == 0 {
+                            if start_input_tokens == 0 && usage.cache_creation_tokens == 0 {
                                 if let Some(cache_creation) = delta_cache_creation {
                                     usage.cache_creation_tokens = cache_creation;
                                 }
@@ -974,6 +974,38 @@ mod tests {
         assert_eq!(usage.cache_read_tokens, 120_000);
         assert_eq!(usage.cache_creation_tokens, 500);
         assert_eq!(usage.model, Some("qwen-max".to_string()));
+    }
+
+    #[test]
+    fn test_claude_stream_rejected_delta_does_not_fill_start_cache() {
+        let events = vec![
+            json!({
+                "type": "message_start",
+                "message": {
+                    "model": "claude-sonnet-4-20250514",
+                    "usage": {
+                        "input_tokens": 200_000,
+                        "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 0
+                    }
+                }
+            }),
+            json!({
+                "type": "message_delta",
+                "usage": {
+                    "input_tokens": 80_000,
+                    "output_tokens": 1_000,
+                    "cache_read_input_tokens": 10_000
+                }
+            }),
+        ];
+
+        let usage = TokenUsage::from_claude_stream_events(&events).unwrap();
+        assert_eq!(usage.input_tokens, 200_000);
+        assert_eq!(usage.output_tokens, 1_000);
+        assert_eq!(usage.cache_read_tokens, 0);
+        assert_eq!(usage.cache_creation_tokens, 0);
+        assert_eq!(usage.model, Some("claude-sonnet-4-20250514".to_string()));
     }
 
     #[test]
