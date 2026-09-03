@@ -210,7 +210,7 @@ impl TokenUsage {
                                     };
 
                                 let should_use_delta_input =
-                                    input > 0 && (start_input_tokens == 0 || corrected_cache_tuple);
+                                    (start_input_tokens == 0 && input > 0) || corrected_cache_tuple;
 
                                 if should_use_delta_input {
                                     usage.input_tokens = input;
@@ -1005,6 +1005,38 @@ mod tests {
         assert_eq!(usage.output_tokens, 1_000);
         assert_eq!(usage.cache_read_tokens, 120_000);
         assert_eq!(usage.cache_creation_tokens, 500);
+        assert_eq!(usage.model, Some("qwen-max".to_string()));
+    }
+
+    #[test]
+    fn test_claude_stream_accepts_coherent_zero_input_correction() {
+        let events = vec![
+            json!({
+                "type": "message_start",
+                "message": {
+                    "model": "qwen-max",
+                    "usage": {
+                        "input_tokens": 200_000,
+                        "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 0
+                    }
+                }
+            }),
+            json!({
+                "type": "message_delta",
+                "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cache_read_input_tokens": 200_000
+                }
+            }),
+        ];
+
+        let usage = TokenUsage::from_claude_stream_events(&events).unwrap();
+        assert_eq!(usage.input_tokens, 0);
+        assert_eq!(usage.output_tokens, 0);
+        assert_eq!(usage.cache_read_tokens, 200_000);
+        assert_eq!(usage.cache_creation_tokens, 0);
         assert_eq!(usage.model, Some("qwen-max".to_string()));
     }
 
