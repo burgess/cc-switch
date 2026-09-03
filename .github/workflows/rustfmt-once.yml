@@ -1,4 +1,4 @@
-name: Patch Delta-Only Cache Preservation Once
+name: Patch Claude Delta State Validation Once
 
 on:
   push:
@@ -24,7 +24,7 @@ jobs:
           ref: automation/rustfmt-once
           path: .automation
 
-      - name: Patch parser and regression test
+      - name: Patch parser and regression tests
         run: python3 .automation/scripts/patch-delta-only-cache.py
 
       - name: Format Rust
@@ -36,5 +36,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src-tauri/src/proxy/usage/parser.rs
-          git commit -m "fix(usage): preserve omitted delta-only cache buckets"
+          git commit -m "fix(usage): validate Claude delta usage state"
           git push origin HEAD:fix/claude-input-token-undercount
